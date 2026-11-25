@@ -3,7 +3,8 @@
 import Image from 'next/image';
 import { motion, useReducedMotion } from 'motion/react';
 import { ArrowRight, Instagram } from 'lucide-react';
-import { HERO_MEDIA } from '@/lib/catalog';
+import heroBg from '@/public/assets/hero/hero-bg.png';
+import crunchCultTitle from '@/public/assets/hero/crunch-cult-title.png';
 
 interface HeroSectionProps {
   onOrderClick: () => void;
@@ -15,31 +16,55 @@ export function HeroSection({ onOrderClick }: HeroSectionProps) {
   return (
     <section
       id="top"
-      className="relative overflow-hidden bg-gradient-to-br from-[#BD4E0E] via-[#9D3E0B] to-[#6E2706] text-[#FFFDF8]"
+      className="relative overflow-hidden bg-gradient-to-br from-[#9D3E0B] via-[#883308] to-[#5F2004] text-[#FFFDF8]"
     >
-      {/* Subtle warm radial glow behind the hero centerpiece */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute -right-24 top-1/2 h-[520px] w-[520px] -translate-y-1/2 rounded-full bg-[#F6C21C]/20 blur-3xl"
-      />
+      {/* Desktop full-bleed hero artwork background */}
+      <div className="pointer-events-none absolute inset-0 hidden md:block">
+        <Image
+          src={heroBg}
+          alt=""
+          fill
+          priority
+          sizes="(min-width: 768px) 100vw, 1px"
+          className="object-cover object-[72%_center] lg:object-center"
+          referrerPolicy="no-referrer"
+        />
+        {/* Gentle left-side contrast scrim so text stays sharp across all desktop widths */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 bg-gradient-to-r from-[#5E2004]/65 via-[#7A2C07]/25 to-transparent lg:from-[#5E2004]/35 lg:via-transparent"
+        />
+      </div>
 
-      <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 pb-24 pt-12 sm:px-6 sm:pb-28 sm:pt-16 lg:grid-cols-12 lg:gap-8 lg:px-8 lg:pb-32 lg:pt-20">
-        {/* Left column: Headline, value prop, primary CTA */}
-        <div className="relative z-10 lg:col-span-6 space-y-6">
+      {/* Main Content Container */}
+      <div className="relative z-10 mx-auto max-w-6xl px-4 pb-6 pt-24 sm:px-6 md:flex md:min-h-[560px] md:items-center md:pb-24 md:pt-28 lg:min-h-[600px] lg:px-8 lg:pb-28 lg:pt-32">
+        <div className="max-w-lg space-y-5">
           <p className="text-xs sm:text-sm font-semibold uppercase tracking-[0.22em] text-[#FDE68A]">
-            Saging Chips · Antipolo City
+            Saging Chips <span aria-hidden="true">·</span> Antipolo City
           </p>
 
-          <h1 className="font-display text-balance text-5xl font-black uppercase leading-[0.94] tracking-tight sm:text-6xl lg:text-7xl">
-            <span className="block text-[#FFFDF8] drop-shadow-sm">Crunch</span>
-            <span className="block text-[#F6C21C] drop-shadow-sm">Cult</span>
-          </h1>
+          <motion.h1
+            initial={prefersReducedMotion ? false : { opacity: 0.92, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+            className="w-full max-w-[340px] sm:max-w-[420px] lg:max-w-[460px]"
+          >
+            <span className="sr-only">Crunch Cult — Saging Banana Chips</span>
+            <Image
+              src={crunchCultTitle}
+              alt="Crunch Cult"
+              priority
+              sizes="(max-width: 640px) 340px, (max-width: 1024px) 420px, 460px"
+              className="h-auto w-full drop-shadow-md"
+              referrerPolicy="no-referrer"
+            />
+          </motion.h1>
 
-          <p className="max-w-md text-base sm:text-lg font-medium leading-relaxed text-[#FBEBD6]">
-            Real banana. Real crunch. Irresistible flavor. Double-sealed 70g packs crafted for every craving.
+          <p className="max-w-sm text-sm sm:text-base font-semibold uppercase tracking-[0.12em] leading-relaxed text-[#FFF9F0] drop-shadow-xs">
+            Real banana. Real crunch. Irresistible flavor.
           </p>
 
-          <div className="flex flex-wrap items-center gap-4 pt-2">
+          <div className="flex flex-wrap items-center gap-4 pt-1">
             <button
               type="button"
               onClick={onOrderClick}
@@ -52,36 +77,31 @@ export function HeroSection({ onOrderClick }: HeroSectionProps) {
 
             <a
               href="#flavors"
-              className="inline-flex items-center gap-1.5 px-3 py-2.5 text-sm sm:text-base font-semibold text-[#FBEBD6] underline decoration-[#F6C21C]/60 underline-offset-4 transition-colors hover:text-[#F6C21C] focus-visible:outline-2 focus-visible:outline-[#F6C21C] rounded-sm min-h-[44px] whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 px-2 py-2.5 text-sm font-semibold text-[#FBEBD6] underline decoration-[#F6C21C]/70 underline-offset-4 transition-colors hover:text-[#F6C21C] focus-visible:outline-2 focus-visible:outline-[#F6C21C] rounded-sm min-h-[44px] whitespace-nowrap shrink-0"
             >
               <span>See all 4 flavors</span>
             </a>
           </div>
-
-          <p className="text-xs sm:text-sm text-[#FDE68A]/90 tabular-nums">
-            ₱25 per 70 g pack · 4 signature flavors · Ready to eat
-          </p>
         </div>
+      </div>
 
-        {/* Right column: Hero product photography centerpiece */}
-        <motion.div
-          initial={prefersReducedMotion ? false : { opacity: 0.9, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-          className="relative z-10 lg:col-span-6"
-        >
-          <div className="relative mx-auto aspect-[4/3] w-full max-w-xl overflow-hidden rounded-3xl shadow-2xl ring-1 ring-white/15 bg-[#7C2D08]">
-            <Image
-              src={HERO_MEDIA.image}
-              alt={HERO_MEDIA.alt}
-              fill
-              priority
-              sizes="(max-width: 1024px) 100vw, 560px"
-              className="object-cover"
-              referrerPolicy="no-referrer"
-            />
-          </div>
-        </motion.div>
+      {/* Mobile Hero Visual Strip: showcases the pouch & overflowing chip bowl cleanly up to the wave */}
+      <div className="relative z-10 md:hidden">
+        <div className="relative aspect-[16/10] w-full overflow-hidden">
+          <Image
+            src={heroBg}
+            alt="Saging Banana Chips pouch pouring crispy golden banana chips into a dark bowl"
+            fill
+            priority
+            sizes="(max-width: 767px) 100vw, 1px"
+            className="object-cover object-[80%_center]"
+            referrerPolicy="no-referrer"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#7E2E07] to-transparent"
+          />
+        </div>
       </div>
     </section>
   );
