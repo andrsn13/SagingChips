@@ -1,5 +1,6 @@
 'use client';
 
+import { motion, useReducedMotion } from 'motion/react';
 import { ArrowRight, Clock, Package, ShieldCheck, Store } from 'lucide-react';
 import { BRAND_INFO } from '@/lib/order-helpers';
 
@@ -29,12 +30,20 @@ const PACK_SPECS = [
 ] as const;
 
 export function PackAndResellerSection({ onResellerClick }: PackAndResellerSectionProps) {
+  const prefersReducedMotion = Boolean(useReducedMotion());
+
   return (
-    <section id="resellers" className="bg-[#F5E1C5] py-16 sm:py-20">
+    <section id="resellers" className="scroll-mt-20 bg-[#F5E1C5] py-16 sm:py-20">
       <div className="mx-auto max-w-6xl space-y-14 px-4 sm:px-6 lg:px-8">
         {/* Pack Transparency Row */}
         <div className="space-y-6">
-          <div className="flex flex-col justify-between gap-2 border-b border-[#3B1A0A]/12 pb-4 sm:flex-row sm:items-end">
+          <motion.div
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.3 }}
+            transition={{ type: 'spring', stiffness: 220, damping: 24 }}
+            className="flex flex-col justify-between gap-2 border-b border-[#3B1A0A]/12 pb-4 sm:flex-row sm:items-end"
+          >
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#AF4D10]">
                 Inside Every Bag
@@ -46,14 +55,31 @@ export function PackAndResellerSection({ onResellerClick }: PackAndResellerSecti
             <p className="text-sm text-[#5C3118]">
               Store in a cool, dry place away from direct sunlight.
             </p>
-          </div>
+          </motion.div>
 
           <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
-            {PACK_SPECS.map(({ label, value, detail, Icon }) => (
-              <div key={label} className="flex items-start gap-4">
-                <div className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#3B1A0A]/15 bg-[#FFF9F0] text-[#AF4D10]">
+            {PACK_SPECS.map(({ label, value, detail, Icon }, idx) => (
+              <motion.div
+                key={label}
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 18 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.25 }}
+                transition={{
+                  type: 'spring',
+                  stiffness: 240,
+                  damping: 24,
+                  delay: idx * 0.08,
+                }}
+                whileHover={prefersReducedMotion ? undefined : { y: -3 }}
+                className="group flex items-start gap-4"
+              >
+                <motion.div
+                  whileHover={prefersReducedMotion ? undefined : { rotate: 8, scale: 1.08 }}
+                  transition={{ type: 'spring', stiffness: 360, damping: 18 }}
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#3B1A0A]/15 bg-[#FFF9F0] text-[#AF4D10] shadow-2xs transition-colors group-hover:border-[#AF4D10] group-hover:bg-[#AF4D10] group-hover:text-[#FFFDF8]"
+                >
                   <Icon className="h-5 w-5" aria-hidden="true" />
-                </div>
+                </motion.div>
                 <div className="space-y-1">
                   <p className="text-xs font-semibold uppercase tracking-wider text-[#7A350C]">
                     {label}
@@ -65,13 +91,19 @@ export function PackAndResellerSection({ onResellerClick }: PackAndResellerSecti
                     {detail}
                   </p>
                 </div>
-              </div>
+              </motion.div>
             ))}
           </div>
         </div>
 
         {/* Reseller Conversion Block */}
-        <div className="flex flex-col justify-between gap-8 rounded-3xl border border-[#3B1A0A]/12 bg-[#FFF9F0] p-6 shadow-sm sm:p-10 lg:flex-row lg:items-center">
+        <motion.div
+          initial={prefersReducedMotion ? false : { opacity: 0, y: 22, scale: 0.98 }}
+          whileInView={{ opacity: 1, y: 0, scale: 1 }}
+          viewport={{ once: true, amount: 0.25 }}
+          transition={{ type: 'spring', stiffness: 210, damping: 24 }}
+          className="flex flex-col justify-between gap-8 rounded-3xl border border-[#3B1A0A]/12 bg-[#FFF9F0] p-6 shadow-sm transition-shadow hover:shadow-md sm:p-10 lg:flex-row lg:items-center"
+        >
           <div className="max-w-2xl space-y-3">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#AF4D10]">
               Resellers & Bulk Orders
@@ -85,17 +117,20 @@ export function PackAndResellerSection({ onResellerClick }: PackAndResellerSecti
           </div>
 
           <div className="shrink-0">
-            <button
+            <motion.button
               type="button"
+              whileHover={prefersReducedMotion ? undefined : { scale: 1.04, y: -2 }}
+              whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 24 }}
               onClick={onResellerClick}
-              className="inline-flex w-full sm:w-auto items-center justify-center gap-2.5 rounded-full bg-[#AF4D10] px-6 py-3.5 text-sm sm:text-base font-semibold text-[#FFFDF8] shadow-md transition-transform duration-150 hover:-translate-y-0.5 hover:bg-[#8E3C0A] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#AF4D10] min-h-[44px] whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex w-full sm:w-auto items-center justify-center gap-2.5 rounded-full bg-[#AF4D10] px-6 py-3.5 text-sm font-semibold text-[#FFFDF8] shadow-md transition-colors duration-150 hover:bg-[#8E3C0A] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#AF4D10] min-h-[44px] whitespace-nowrap shrink-0 cursor-pointer sm:text-base"
             >
               <Store className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />
               <span>Message us about reselling</span>
               <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />
-            </button>
+            </motion.button>
           </div>
-        </div>
+        </motion.div>
       </div>
     </section>
   );

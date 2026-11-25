@@ -1,9 +1,9 @@
 import type { StaticImageData } from 'next/image';
 import heroCrunchBowl from '@/src/assets/images/hero_crunch_bowl_1795607517283.jpg';
-import pouchBbq from '@/src/assets/images/pouch_bbq_1795607518650.jpg';
-import pouchSourCream from '@/src/assets/images/pouch_sour_cream_1795607518849.jpg';
-import pouchCheese from '@/src/assets/images/pouch_cheese_1795607518941.jpg';
-import pouchOrdinary from '@/src/assets/images/pouch_ordinary_1795607520125.jpg';
+import pouchBbq from '@/src/assets/images/pro_pouch_bbq_1795610068656.jpg';
+import pouchSourCream from '@/src/assets/images/pro_pouch_sour_cream_1795610070197.jpg';
+import pouchCheese from '@/src/assets/images/pro_pouch_cheese_1795610071214.jpg';
+import pouchOrdinary from '@/src/assets/images/pro_pouch_ordinary_1795610072149.jpg';
 import whySagingMacro from '@/src/assets/images/why_saging_macro_1795607516817.jpg';
 import occasionStudyDesk from '@/src/assets/images/occasion_study_desk_1795607518684.jpg';
 import occasionRoadTrip from '@/src/assets/images/occasion_road_trip_1795607518449.jpg';
