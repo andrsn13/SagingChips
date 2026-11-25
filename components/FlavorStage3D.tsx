@@ -245,7 +245,11 @@ export function FlavorStage3D({
 
     // Async upgrade each pouch front albedo to cropped studio photography with zero pop-in
     flavors.forEach((flavor, idx) => {
-      createStudioPhotoFrontTexture(flavor.image.src, maxAnisotropy).then((studioTex) => {
+      createStudioPhotoFrontTexture(
+        flavor.image.src,
+        flavor.id as FlavorId,
+        maxAnisotropy
+      ).then((studioTex) => {
         if (!studioTex) return;
         if (disposed || contextLost) {
           studioTex.dispose();

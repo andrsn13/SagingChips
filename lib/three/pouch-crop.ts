@@ -10,12 +10,16 @@ export interface ScanlineBounds {
   bottomY: number;
   leftX: Int32Array;
   rightX: Int32Array;
+  topYCol: Int32Array;
+  bottomYCol: Int32Array;
 }
 
 /**
- * Computes per-scanline left/right bounds of the centered pouch inside a studio image.
+ * Computes 2D perimeter contours of the centered pouch inside a studio image:
+ * - Row-wise side bounds (leftX[y], rightX[y]) stabilized against floor shadows via middle-torso linear fit.
+ * - Column-wise vertical bounds (topYCol[x], bottomYCol[x]) hugging the curved U-shaped stand-up gusset.
  * Works across red (BBQ), green (Sour Cream), gold (Cheese), and white matte (Ordinary) pouches
- * against warm cream studio backdrops by measuring Manhattan RGB distance from row margin color.
+ * against warm cream backdrops and soft tan floor cast shadows.
  */
 export function detectPouchScanlines(
   data: Uint8ClampedArray,
@@ -25,33 +29,55 @@ export function detectPouchScanlines(
   const rowBgR = new Float32Array(height);
   const rowBgG = new Float32Array(height);
   const rowBgB = new Float32Array(height);
+  const rowBgLum = new Float32Array(height);
 
   const sampleMargin = Math.max(4, Math.min(18, Math.floor(width * 0.02)));
   for (let y = 0; y < height; y++) {
     const idxL = (y * width + sampleMargin) * 4;
     const idxR = (y * width + (width - 1 - sampleMargin)) * 4;
-    rowBgR[y] = (data[idxL] + data[idxR]) * 0.5;
-    rowBgG[y] = (data[idxL + 1] + data[idxR + 1]) * 0.5;
-    rowBgB[y] = (data[idxL + 2] + data[idxR + 2]) * 0.5;
+    const r = (data[idxL] + data[idxR]) * 0.5;
+    const g = (data[idxL + 1] + data[idxR + 1]) * 0.5;
+    const b = (data[idxL + 2] + data[idxR + 2]) * 0.5;
+    rowBgR[y] = r;
+    rowBgG[y] = g;
+    rowBgB[y] = b;
+    rowBgLum[y] = Math.max(20, 0.299 * r + 0.587 * g + 0.114 * b);
   }
 
-  const distAt = (x: number, y: number): number => {
+  // Distinguishes real pouch foil (red, green, gold, or neutral white matte) from warm cream backdrop AND warm cast shadows
+  const isPouchPixel = (x: number, y: number): boolean => {
     const idx = (y * width + x) * 4;
-    return (
-      Math.abs(data[idx] - rowBgR[y]) +
-      Math.abs(data[idx + 1] - rowBgG[y]) +
-      Math.abs(data[idx + 2] - rowBgB[y])
-    );
+    const r = data[idx];
+    const g = data[idx + 1];
+    const b = data[idx + 2];
+    const bgR = rowBgR[y];
+    const bgG = rowBgG[y];
+    const bgB = rowBgB[y];
+    const bgLum = rowBgLum[y];
+
+    const manhattan = Math.abs(r - bgR) + Math.abs(g - bgG) + Math.abs(b - bgB);
+    if (manhattan <= 22) return false;
+
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    if (lum < bgLum * 0.62) return true;
+
+    const safeLum = Math.max(12, lum);
+    const chromaDiff =
+      Math.abs(r / safeLum - bgR / bgLum) +
+      Math.abs(g / safeLum - bgG / bgLum) +
+      Math.abs(b / safeLum - bgB / bgLum);
+
+    return chromaDiff > 0.195;
   };
 
-  // Locate topY and bottomY across a central vertical band (avoiding faint studio floor shadow)
+  // 1. Locate global topY and bottomY across central vertical band
   const centerStart = Math.floor(width * 0.42);
   const centerEnd = Math.floor(width * 0.58);
   let topY = Math.floor(height * 0.14);
   for (let y = Math.floor(height * 0.05); y < Math.floor(height * 0.45); y++) {
     let hits = 0;
     for (let x = centerStart; x <= centerEnd; x += 4) {
-      if (distAt(x, y) > 26) hits++;
+      if (isPouchPixel(x, y)) hits++;
     }
     if (hits >= 3) {
       topY = y;
@@ -59,12 +85,11 @@ export function detectPouchScanlines(
     }
   }
 
-  // Scan upward from below the floor shadow; require stronger chroma/contrast to exclude soft shadow
   let bottomY = Math.floor(height * 0.855);
-  for (let y = Math.floor(height * 0.89); y > Math.floor(height * 0.65); y--) {
+  for (let y = Math.floor(height * 0.92); y > Math.floor(height * 0.62); y--) {
     let hits = 0;
     for (let x = centerStart; x <= centerEnd; x += 4) {
-      if (distAt(x, y) > 42) hits++;
+      if (isPouchPixel(x, y)) hits++;
     }
     if (hits >= 3) {
       bottomY = y;
@@ -77,12 +102,11 @@ export function detectPouchScanlines(
     bottomY = Math.floor(height * 0.86);
   }
 
+  // 2. Scan left/right side seams per row, and stabilize lower gusset via linear torso regression
   const rawLeft = new Int32Array(height);
   const rawRight = new Int32Array(height);
-  const defaultLeft = Math.floor(width * 0.18);
-  const defaultRight = Math.floor(width * 0.82);
-  const spanYEst = Math.max(1, bottomY - topY);
-  const botZoneStart = bottomY - Math.round(spanYEst * 0.15);
+  const defaultLeft = Math.floor(width * 0.2);
+  const defaultRight = Math.floor(width * 0.8);
 
   for (let y = 0; y < height; y++) {
     if (y < topY || y > bottomY) {
@@ -91,15 +115,11 @@ export function detectPouchScanlines(
       continue;
     }
 
-    const tBot =
-      y > botZoneStart
-        ? Math.min(1, (y - botZoneStart) / Math.max(1, bottomY - botZoneStart))
-        : 0;
-    const thresh = Math.round(26 + tBot * 20);
-
     let lx = defaultLeft;
     for (let x = Math.floor(width * 0.08); x < Math.floor(width * 0.45); x++) {
-      if (distAt(x, y) > thresh && distAt(Math.min(width - 1, x + 4), y) > thresh) {
+      const x1 = Math.min(width - 1, x + 2);
+      const x2 = Math.min(width - 1, x + 4);
+      if (isPouchPixel(x, y) && isPouchPixel(x1, y) && isPouchPixel(x2, y)) {
         lx = x;
         break;
       }
@@ -107,7 +127,9 @@ export function detectPouchScanlines(
 
     let rx = defaultRight;
     for (let x = Math.floor(width * 0.92); x > Math.floor(width * 0.55); x--) {
-      if (distAt(x, y) > thresh && distAt(Math.max(0, x - 4), y) > thresh) {
+      const x1 = Math.max(0, x - 2);
+      const x2 = Math.max(0, x - 4);
+      if (isPouchPixel(x, y) && isPouchPixel(x1, y) && isPouchPixel(x2, y)) {
         rx = x;
         break;
       }
@@ -122,11 +144,42 @@ export function detectPouchScanlines(
     rawRight[y] = rx;
   }
 
-  // 5-tap median smoothing + tapered inward inset (slightly deeper around bottom rounded corners)
+  // Linear fit on shadow-free middle torso [22%..72%] prevents floor shadows from flaring side seams outward
+  const pouchH = Math.max(1, bottomY - topY);
+  const fitStart = Math.round(topY + pouchH * 0.22);
+  const fitEnd = Math.round(topY + pouchH * 0.72);
+  let sumY = 0;
+  let sumYY = 0;
+  let sumL = 0;
+  let sumYL = 0;
+  let sumR = 0;
+  let sumYR = 0;
+  let count = 0;
+  for (let y = fitStart; y <= fitEnd; y++) {
+    sumY += y;
+    sumYY += y * y;
+    sumL += rawLeft[y];
+    sumYL += y * rawLeft[y];
+    sumR += rawRight[y];
+    sumYR += y * rawRight[y];
+    count++;
+  }
+  const denom = count * sumYY - sumY * sumY;
+  if (count >= 8 && Math.abs(denom) > 1e-4) {
+    const slopeL = (count * sumYL - sumY * sumL) / denom;
+    const intL = (sumL - slopeL * sumY) / count;
+    const slopeR = (count * sumYR - sumY * sumR) / denom;
+    const intR = (sumR - slopeR * sumY) / count;
+    const lowerStart = Math.round(topY + pouchH * 0.74);
+    for (let y = lowerStart; y <= bottomY; y++) {
+      rawLeft[y] = Math.max(rawLeft[y], Math.round(slopeL * y + intL));
+      rawRight[y] = Math.min(rawRight[y], Math.round(slopeR * y + intR));
+    }
+  }
+
   const leftX = new Int32Array(height);
   const rightX = new Int32Array(height);
-  const baseInsetPx = Math.max(2, Math.round(width * 0.0055));
-  const cornerExtraInsetPx = Math.max(2, Math.round(width * 0.011));
+  const insetX = Math.max(2, Math.round(width * 0.0055));
 
   for (let y = 0; y < height; y++) {
     const winL: number[] = [];
@@ -138,27 +191,75 @@ export function detectPouchScanlines(
     }
     winL.sort((a, b) => a - b);
     winR.sort((a, b) => a - b);
+    leftX[y] = winL[2] + insetX;
+    rightX[y] = Math.max(leftX[y] + 16, winR[2] - insetX);
+  }
 
-    const tBot =
-      y > botZoneStart
-        ? Math.min(1, (y - botZoneStart) / Math.max(1, bottomY - botZoneStart))
-        : 0;
-    const rowInset = baseInsetPx + Math.round(tBot * cornerExtraInsetPx);
+  // 3. Column-wise top & bottom gusset contour tracing so U-shaped corners never leak cream studio floor
+  const rawTopCol = new Int32Array(width);
+  const rawBotCol = new Int32Array(width);
+  const topLimit = Math.min(height - 1, topY + Math.round(pouchH * 0.25));
+  const botLimit = Math.max(0, bottomY - Math.round(pouchH * 0.28));
+  const topSearchStart = Math.max(0, topY - 10);
+  const botSearchStart = Math.min(height - 1, bottomY + 12);
 
-    leftX[y] = winL[2] + rowInset;
-    rightX[y] = Math.max(leftX[y] + 16, winR[2] - rowInset);
+  for (let x = 0; x < width; x++) {
+    let ty = topY;
+    for (let y = topSearchStart; y <= topLimit; y++) {
+      const y1 = Math.min(height - 1, y + 1);
+      const y2 = Math.min(height - 1, y + 2);
+      if (isPouchPixel(x, y) && isPouchPixel(x, y1) && isPouchPixel(x, y2)) {
+        ty = y;
+        break;
+      }
+    }
+
+    let by = bottomY;
+    for (let y = botSearchStart; y >= botLimit; y--) {
+      const y1 = Math.max(0, y - 1);
+      const y2 = Math.max(0, y - 2);
+      if (isPouchPixel(x, y) && isPouchPixel(x, y1) && isPouchPixel(x, y2)) {
+        by = y;
+        break;
+      }
+    }
+
+    rawTopCol[x] = ty;
+    rawBotCol[x] = Math.max(ty + 16, by);
+  }
+
+  // 9-tap median smooth along column contours + inward safety inset
+  const topYCol = new Int32Array(width);
+  const bottomYCol = new Int32Array(width);
+  const insetTop = Math.max(2, Math.round(height * 0.003));
+  const insetBot = Math.max(3, Math.round(height * 0.011));
+
+  for (let x = 0; x < width; x++) {
+    const winT: number[] = [];
+    const winB: number[] = [];
+    for (let dx = -4; dx <= 4; dx++) {
+      const xx = Math.max(0, Math.min(width - 1, x + dx));
+      winT.push(rawTopCol[xx]);
+      winB.push(rawBotCol[xx]);
+    }
+    winT.sort((a, b) => a - b);
+    winB.sort((a, b) => a - b);
+    topYCol[x] = Math.min(bottomY - 12, winT[4] + insetTop);
+    bottomYCol[x] = Math.max(topYCol[x] + 12, winB[4] - insetBot);
   }
 
   return {
-    topY: Math.min(bottomY - 10, topY + 2),
-    bottomY: Math.max(topY + 10, bottomY - 3),
+    topY: Math.min(bottomY - 10, topY + insetTop),
+    bottomY: Math.max(topY + 10, bottomY - insetBot),
     leftX,
     rightX,
+    topYCol,
+    bottomYCol,
   };
 }
 
 /**
- * Bilinear sample + scanline unwarp from source studio image data into target RGBA buffer.
+ * Bilinear sample + 2D contour unwarp from source studio image data into target RGBA buffer.
  */
 export function unwarpStudioPouchPixels(
   srcData: Uint8ClampedArray,
@@ -169,26 +270,34 @@ export function unwarpStudioPouchPixels(
   dstH: number
 ): void {
   const bounds = detectPouchScanlines(srcData, srcW, srcH);
-  const spanY = Math.max(1, bounds.bottomY - bounds.topY);
+  const globalSpanY = Math.max(1, bounds.bottomY - bounds.topY);
 
   for (let dy = 0; dy < dstH; dy++) {
     const v = dy / Math.max(1, dstH - 1);
-    const syFloat = bounds.topY + v * spanY;
-    const sy0 = Math.max(0, Math.min(srcH - 1, Math.floor(syFloat)));
-    const sy1 = Math.min(srcH - 1, sy0 + 1);
-    const fy = syFloat - sy0;
+    const roughY = bounds.topY + v * globalSpanY;
+    const ry0 = Math.max(0, Math.min(srcH - 1, Math.floor(roughY)));
+    const ry1 = Math.min(srcH - 1, ry0 + 1);
+    const rfy = roughY - ry0;
 
-    const lx = bounds.leftX[sy0] * (1 - fy) + bounds.leftX[sy1] * fy;
-    const rx = bounds.rightX[sy0] * (1 - fy) + bounds.rightX[sy1] * fy;
+    const lx = bounds.leftX[ry0] * (1 - rfy) + bounds.leftX[ry1] * rfy;
+    const rx = bounds.rightX[ry0] * (1 - rfy) + bounds.rightX[ry1] * rfy;
     const spanX = Math.max(1, rx - lx);
 
-    // Subtle edge seam shading on outer 2.5% to integrate cleanly into 3D side rim
     for (let dx = 0; dx < dstW; dx++) {
       const u = dx / Math.max(1, dstW - 1);
-      const sxFloat = lx + u * spanX;
+      const sxFloat = Math.max(0, Math.min(srcW - 1, lx + u * spanX));
       const sx0 = Math.max(0, Math.min(srcW - 1, Math.floor(sxFloat)));
       const sx1 = Math.min(srcW - 1, sx0 + 1);
       const fx = sxFloat - sx0;
+
+      // Interpolate column-specific U-shaped gusset bounds at sxFloat
+      const colTop = bounds.topYCol[sx0] * (1 - fx) + bounds.topYCol[sx1] * fx;
+      const colBot = bounds.bottomYCol[sx0] * (1 - fx) + bounds.bottomYCol[sx1] * fx;
+      const syFloat = Math.max(0, Math.min(srcH - 1, colTop + v * Math.max(1, colBot - colTop)));
+
+      const sy0 = Math.max(0, Math.min(srcH - 1, Math.floor(syFloat)));
+      const sy1 = Math.min(srcH - 1, sy0 + 1);
+      const fy = syFloat - sy0;
 
       const i00 = (sy0 * srcW + sx0) * 4;
       const i10 = (sy0 * srcW + sx1) * 4;

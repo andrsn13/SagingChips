@@ -198,11 +198,110 @@ export function createPouchFrontTexture(
 }
 
 /**
- * Loads the studio-engineered pouch image, trims cream backdrop per scanline,
+ * Repairs the green leaf overlap cutting across Sour Cream's burnt-orange sticker
+ * and softens the pale top-left crimp corner flare into matching emerald metallic foil.
+ */
+function repairSourCreamStickerAndCorner(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number
+): void {
+  // 1. Clean top-left pale studio flare on the crimp corner (u < 0.16, v < 0.12)
+  const maxCornerX = Math.round(w * 0.16);
+  const maxCornerY = Math.round(h * 0.12);
+  for (let y = 0; y < maxCornerY; y++) {
+    const vFade = 1 - y / maxCornerY;
+    for (let x = 0; x < maxCornerX; x++) {
+      const uFade = 1 - x / maxCornerX;
+      const idx = (y * w + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (lum > 145 && g - r < 42 && g - b < 48) {
+        const blend = Math.min(1, ((lum - 145) / 70) * Math.min(1, (uFade + vFade) * 0.85));
+        const targetR = 26;
+        const targetG = 132;
+        const targetB = 56;
+        data[idx] = Math.round(r * (1 - blend) + targetR * blend);
+        data[idx + 1] = Math.round(g * (1 - blend) + targetG * blend);
+        data[idx + 2] = Math.round(b * (1 - blend) + targetB * blend);
+      }
+    }
+  }
+
+  // 2. Restore solid studio-lit burnt-orange sticker behind authentic white typography
+  const x0 = Math.round(w * 0.21);
+  const x1 = Math.round(w * 0.794);
+  const y0 = Math.round(h * 0.254);
+  const y1 = Math.round(h * 0.514);
+  const stickerW = Math.max(1, x1 - x0);
+  const stickerH = Math.max(1, y1 - y0);
+
+  for (let y = y0; y <= y1; y++) {
+    const v = y / (h - 1);
+    const vLocal = (y - y0) / stickerH;
+    // Soft 2px anti-aliased edge feather at sticker perimeter
+    const edgeY = Math.min(1, Math.min(y - y0, y1 - y) / 2.5);
+
+    for (let x = x0; x <= x1; x++) {
+      const u = x / (w - 1);
+      const uLocal = (x - x0) / stickerW;
+      const edgeX = Math.min(1, Math.min(x - x0, x1 - x) / 2.5);
+      const borderAlpha = Math.min(edgeX, edgeY);
+
+      const idx = (y * w + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+
+      // Cylindrical foil wrap light across sticker (soft left specular, rich #C85A14 center, warm right curve)
+      const wrapSheen =
+        1.0 +
+        0.09 * Math.exp(-Math.pow((uLocal - 0.16) / 0.18, 2)) -
+        0.12 * Math.pow(Math.max(0, uLocal - 0.65) / 0.35, 1.4) -
+        0.04 * vLocal;
+      const baseR = Math.min(255, Math.round(205 * wrapSheen));
+      const baseG = Math.min(255, Math.round(104 * wrapSheen));
+      const baseB = Math.min(255, Math.round(42 * wrapSheen));
+
+      // Extract crisp original white typography ("Saging", "BANANA CHIPS", "SOUR CREAM") including curved right shadow edge
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      const isNotGreenLeaf = g - b < 52 || r > 175;
+      let textAlpha = 0;
+      if (v >= 0.262 && v < 0.418 && u >= 0.22 && u <= 0.785) {
+        if (isNotGreenLeaf) {
+          textAlpha = Math.max(0, Math.min(1, (lum - 166) / 42));
+        }
+      } else if (v >= 0.418 && v <= 0.456 && u >= 0.30 && u <= 0.70) {
+        // "BANANA CHIPS" lettering is bright warm cream-yellow over darker green leaf
+        const warmLum = Math.min(r, g);
+        textAlpha = Math.max(0, Math.min(1, (warmLum - 154) / 44));
+      } else if (v > 0.456 && v <= 0.510 && u >= 0.215 && u <= 0.788) {
+        if (r > 152 && g - b < 52) {
+          textAlpha = Math.max(0, Math.min(1, (lum - 156) / 44));
+        }
+      }
+
+      const letterShade = Math.min(1.0, 0.92 + 0.08 * wrapSheen);
+      const outR = Math.round(baseR * (1 - textAlpha) + 255 * letterShade * textAlpha);
+      const outG = Math.round(baseG * (1 - textAlpha) + 251 * letterShade * textAlpha);
+      const outB = Math.round(baseB * (1 - textAlpha) + 244 * letterShade * textAlpha);
+
+      data[idx] = Math.round(r * (1 - borderAlpha) + outR * borderAlpha);
+      data[idx + 1] = Math.round(g * (1 - borderAlpha) + outG * borderAlpha);
+      data[idx + 2] = Math.round(b * (1 - borderAlpha) + outB * borderAlpha);
+    }
+  }
+}
+
+/**
+ * Loads the studio-engineered pouch image, trims cream backdrop via 2D contours,
  * unwarps edge-to-edge onto a 1024x1365 albedo texture, and returns a crisp CanvasTexture.
  */
 export function createStudioPhotoFrontTexture(
   imageSrc: string,
+  flavorId: FlavorId,
   maxAnisotropy: number
 ): Promise<THREE.CanvasTexture | null> {
   return new Promise((resolve) => {
@@ -243,6 +342,11 @@ export function createStudioPhotoFrontTexture(
           dstW,
           dstH
         );
+
+        if (flavorId === 'sour-cream') {
+          repairSourCreamStickerAndCorner(dstImageData.data, dstW, dstH);
+        }
+
         dstCtx.putImageData(dstImageData, 0, 0);
 
         // Subtle outer edge seam blend so perimeter edges marry seamlessly into the 3D side rim

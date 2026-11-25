@@ -43,6 +43,56 @@ test('detectPouchScanlines strips uniform cream backdrop margins cleanly even fo
   assert.ok(Math.abs(dst[0] - dst[2]) <= 8, `Expected neutral white pouch pixel, got R=${dst[0]}, B=${dst[2]}`);
 });
 
+test('unwarpStudioPouchPixels traces U-shaped curved bottom gusset corners without leaking cream or floor shadow', () => {
+  const w = 140;
+  const h = 180;
+  const data = new Uint8ClampedArray(w * h * 4);
+
+  // Cream background
+  for (let i = 0; i < w * h; i++) {
+    data[i * 4] = 246;
+    data[i * 4 + 1] = 228;
+    data[i * 4 + 2] = 197;
+    data[i * 4 + 3] = 255;
+  }
+
+  // Soft warm tan floor shadow below pouch
+  for (let y = 135; y <= 156; y++) {
+    for (let x = 22; x <= 118; x++) {
+      const idx = (y * w + x) * 4;
+      data[idx] = 216;
+      data[idx + 1] = 188;
+      data[idx + 2] = 152;
+    }
+  }
+
+  // Paint emerald green pouch with curved U-shaped bottom gusset (center drops to y=150, corners curve up to y=132)
+  for (let x = 26; x <= 114; x++) {
+    const u = ((x - 70) / 44);
+    const botY = Math.round(150 - 18 * u * u);
+    for (let y = 28; y <= botY; y++) {
+      const idx = (y * w + x) * 4;
+      data[idx] = 22;
+      data[idx + 1] = 138;
+      data[idx + 2] = 56;
+    }
+  }
+
+  const dstW = 80;
+  const dstH = 100;
+  const dst = new Uint8ClampedArray(dstW * dstH * 4);
+  unwarpStudioPouchPixels(data, w, h, dst, dstW, dstH);
+
+  // Check bottom-left, bottom-center, and bottom-right corner pixels: ALL must be emerald green (G > R + 40), zero cream/shadow!
+  for (const dx of [0, 3, 40, dstW - 4, dstW - 1]) {
+    const idx = ((dstH - 1) * dstW + dx) * 4;
+    assert.ok(
+      dst[idx + 1] > dst[idx] + 40,
+      `Expected green foil at bottom dx=${dx}, got RGB(${dst[idx]}, ${dst[idx + 1]}, ${dst[idx + 2]})`
+    );
+  }
+});
+
 test('computeSobelNormal returns unit-normal RGB centered at (128,128,255) on flat heightfield', () => {
   const field = new Float32Array(16).fill(0.5);
   const [r, g, b] = computeSobelNormal(field, 4, 4, 2, 2, 2.0);
