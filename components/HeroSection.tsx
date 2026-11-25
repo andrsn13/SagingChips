@@ -20,10 +20,9 @@ export function HeroSection({ onOrderClick }: HeroSectionProps) {
     offset: ['start start', 'end start'],
   });
 
-  // Multi-depth physical parallax separating background scene and foreground title stack
-  const bgY = useTransform(scrollYProgress, [0, 1], [0, 72]);
-  const bgScale = useTransform(scrollYProgress, [0, 1], [1.0, 1.07]);
-  const copyY = useTransform(scrollYProgress, [0, 1], [0, -32]);
+  // Pure vertical parallax without zoom scaling so the 2048x768 artwork stays pixel-crisp
+  const bgY = useTransform(scrollYProgress, [0, 1], [0, 52]);
+  const copyY = useTransform(scrollYProgress, [0, 1], [0, -28]);
 
   return (
     <section
@@ -31,16 +30,17 @@ export function HeroSection({ onOrderClick }: HeroSectionProps) {
       id="top"
       className="relative overflow-hidden bg-gradient-to-br from-[#9D3E0B] via-[#883308] to-[#5F2004] text-[#FFFDF8]"
     >
-      {/* Desktop full-bleed hero artwork background with scroll-depth parallax */}
+      {/* Desktop full-bleed hero artwork background at q=100 with zero blur scaling */}
       <motion.div
-        style={prefersReducedMotion ? undefined : { y: bgY, scale: bgScale }}
-        className="pointer-events-none absolute inset-0 hidden will-change-transform md:block"
+        style={prefersReducedMotion ? undefined : { y: bgY }}
+        className="pointer-events-none absolute -top-4 inset-x-0 bottom-0 hidden md:block"
       >
         <Image
           src={heroBg}
           alt=""
           fill
           priority
+          quality={100}
           sizes="(min-width: 768px) 100vw, 1px"
           className="object-cover object-[72%_center] lg:object-center"
           referrerPolicy="no-referrer"
@@ -48,15 +48,15 @@ export function HeroSection({ onOrderClick }: HeroSectionProps) {
         {/* Gentle left-side contrast scrim so text stays sharp across all desktop widths */}
         <div
           aria-hidden="true"
-          className="absolute inset-0 bg-gradient-to-r from-[#5E2004]/65 via-[#7A2C07]/25 to-transparent lg:from-[#5E2004]/35 lg:via-transparent"
+          className="absolute inset-0 bg-gradient-to-r from-[#5E2004]/60 via-[#7A2C07]/20 to-transparent lg:from-[#5E2004]/30 lg:via-transparent"
         />
       </motion.div>
 
       {/* Main Content Container */}
-      <div className="relative z-10 mx-auto max-w-6xl px-4 pb-6 pt-24 sm:px-6 md:flex md:min-h-[560px] md:items-center md:pb-24 md:pt-28 lg:min-h-[600px] lg:px-8 lg:pb-28 lg:pt-32">
+      <div className="relative z-10 mx-auto max-w-6xl px-4 pb-6 pt-22 sm:px-6 md:flex md:min-h-[500px] md:items-center md:pb-20 md:pt-24 lg:min-h-[540px] lg:px-8 lg:pb-24 lg:pt-28">
         <motion.div
           style={prefersReducedMotion ? undefined : { y: copyY }}
-          className="max-w-lg space-y-5 will-change-transform"
+          className="max-w-lg space-y-5"
         >
           <motion.p
             initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
@@ -68,8 +68,8 @@ export function HeroSection({ onOrderClick }: HeroSectionProps) {
           </motion.p>
 
           <motion.h1
-            initial={prefersReducedMotion ? false : { opacity: 0, y: 18, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ type: 'spring', stiffness: 220, damping: 22, delay: 0.1 }}
             className="w-full max-w-[340px] sm:max-w-[420px] lg:max-w-[460px]"
           >
@@ -78,6 +78,7 @@ export function HeroSection({ onOrderClick }: HeroSectionProps) {
               src={crunchCultTitle}
               alt="Crunch Cult"
               priority
+              quality={100}
               sizes="(max-width: 640px) 340px, (max-width: 1024px) 420px, 460px"
               className="h-auto w-full drop-shadow-md"
               referrerPolicy="no-referrer"
@@ -124,7 +125,7 @@ export function HeroSection({ onOrderClick }: HeroSectionProps) {
         </motion.div>
       </div>
 
-      {/* Mobile Hero Visual Strip: showcases the pouch & overflowing chip bowl cleanly up to the wave */}
+      {/* Mobile Hero Visual Strip: crisp q=100 */}
       <div className="relative z-10 md:hidden">
         <div className="relative aspect-[16/10] w-full overflow-hidden">
           <Image
@@ -132,6 +133,7 @@ export function HeroSection({ onOrderClick }: HeroSectionProps) {
             alt="Saging Banana Chips pouch pouring crispy golden banana chips into a dark bowl"
             fill
             priority
+            quality={100}
             sizes="(max-width: 767px) 100vw, 1px"
             className="object-cover object-[80%_center]"
             referrerPolicy="no-referrer"

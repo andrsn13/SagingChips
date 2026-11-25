@@ -8,8 +8,9 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
-  // Allow access to remote image placeholder.
+  // Allow access to remote image placeholder and lossless-grade local optimization.
   images: {
+    qualities: [75, 95, 100],
     remotePatterns: [
       {
         protocol: 'https',

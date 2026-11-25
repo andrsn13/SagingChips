@@ -51,17 +51,11 @@ export function FlavorsSection({ onSelectFlavor }: FlavorsSectionProps) {
     <section
       id="flavors"
       data-active-flavor={activeFlavor.id}
-      className="relative overflow-hidden bg-[#FBEBD6] py-14 sm:py-20 lg:py-24"
+      className="relative scroll-mt-16 overflow-hidden bg-[#FBEBD6] pt-3 pb-16 sm:pt-5 sm:pb-20 lg:pt-6 lg:pb-24"
     >
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-        {/* Section Header with subtle hairline wings */}
-        <motion.div
-          initial={prefersReducedMotion ? false : { opacity: 0, y: 18 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, amount: 0.3 }}
-          transition={{ type: 'spring', stiffness: 220, damping: 24 }}
-          className="mx-auto max-w-2xl space-y-3 text-center"
-        >
+        {/* Section Header always visible so it peeks invitingly below the Hero wave */}
+        <div className="mx-auto max-w-2xl space-y-2.5 text-center">
           <div className="flex items-center justify-center gap-4">
             <span aria-hidden="true" className="h-px w-12 bg-[#AF4D10]/30 sm:w-20" />
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#AF4D10] sm:text-sm">
@@ -84,7 +78,7 @@ export function FlavorsSection({ onSelectFlavor }: FlavorsSectionProps) {
               <span>Hover or tap a pouch to focus · Drag to spin 360°</span>
             </p>
           )}
-        </motion.div>
+        </div>
 
         {/* Interactive 3D Overlapping Fan Stage (or Reduced-Motion / Fallback Fan) */}
         <div className="relative mt-6 sm:mt-8">

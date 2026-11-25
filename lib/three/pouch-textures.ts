@@ -1,5 +1,10 @@
 import * as THREE from 'three';
 import type { FlavorId } from '@/lib/order-helpers';
+import {
+  computeSobelNormal,
+  sampleValueNoise2D,
+  unwarpStudioPouchPixels,
+} from './pouch-crop';
 
 export interface FlavorPouchPalette {
   id: FlavorId;
@@ -26,9 +31,9 @@ export const POUCH_PALETTES: Record<FlavorId, FlavorPouchPalette> = {
     gussetHex: 0x700e0e,
     stickerBg: '#C85A14',
     stickerText: '#FFFDF8',
-    metalness: 0.34,
-    roughness: 0.38,
-    clearcoat: 0.28,
+    metalness: 0.28,
+    roughness: 0.42,
+    clearcoat: 0.32,
   },
   'sour-cream': {
     id: 'sour-cream',
@@ -39,9 +44,9 @@ export const POUCH_PALETTES: Record<FlavorId, FlavorPouchPalette> = {
     gussetHex: 0x0a421f,
     stickerBg: '#C85A14',
     stickerText: '#FFFDF8',
-    metalness: 0.36,
-    roughness: 0.36,
-    clearcoat: 0.3,
+    metalness: 0.3,
+    roughness: 0.4,
+    clearcoat: 0.34,
   },
   cheese: {
     id: 'cheese',
@@ -52,9 +57,9 @@ export const POUCH_PALETTES: Record<FlavorId, FlavorPouchPalette> = {
     gussetHex: 0x874806,
     stickerBg: '#C85A14',
     stickerText: '#FFFDF8',
-    metalness: 0.32,
-    roughness: 0.38,
-    clearcoat: 0.26,
+    metalness: 0.28,
+    roughness: 0.42,
+    clearcoat: 0.3,
   },
   ordinary: {
     id: 'ordinary',
@@ -65,9 +70,9 @@ export const POUCH_PALETTES: Record<FlavorId, FlavorPouchPalette> = {
     gussetHex: 0xd9cdbc,
     stickerBg: '#C85A14',
     stickerText: '#FFFDF8',
-    metalness: 0.04,
-    roughness: 0.66,
-    clearcoat: 0.06,
+    metalness: 0.05,
+    roughness: 0.64,
+    clearcoat: 0.08,
     isMatteWhite: true,
   },
 };
@@ -107,20 +112,18 @@ function paintBaseFoil(
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, w, h);
 
-  // Subtle vertical studio foil sheen bands
-  const sheenAlpha = palette.isMatteWhite ? 0.06 : 0.11;
+  const sheenAlpha = palette.isMatteWhite ? 0.05 : 0.1;
   const sheenGrad = ctx.createLinearGradient(0, 0, w, 0);
-  sheenGrad.addColorStop(0, 'rgba(0,0,0,0.16)');
+  sheenGrad.addColorStop(0, 'rgba(0,0,0,0.14)');
   sheenGrad.addColorStop(0.22, `rgba(255,255,255,${sheenAlpha})`);
   sheenGrad.addColorStop(0.5, 'rgba(255,255,255,0.02)');
   sheenGrad.addColorStop(0.76, `rgba(255,255,255,${sheenAlpha * 0.75})`);
-  sheenGrad.addColorStop(1, 'rgba(0,0,0,0.18)');
+  sheenGrad.addColorStop(1, 'rgba(0,0,0,0.16)');
   ctx.fillStyle = sheenGrad;
   ctx.fillRect(0, 0, w, h);
 
-  // Organic lower wave motif framing the pouch skirt
   ctx.save();
-  ctx.globalAlpha = palette.isMatteWhite ? 0.09 : 0.14;
+  ctx.globalAlpha = palette.isMatteWhite ? 0.08 : 0.13;
   ctx.fillStyle = palette.isMatteWhite ? '#C85A14' : '#FFFFFF';
   ctx.beginPath();
   ctx.moveTo(0, h * 0.79);
@@ -131,12 +134,10 @@ function paintBaseFoil(
   ctx.fill();
   ctx.restore();
 
-  // Heat-seal edge borders (left & right)
   ctx.fillStyle = palette.isMatteWhite ? 'rgba(120,53,15,0.08)' : 'rgba(0,0,0,0.16)';
   ctx.fillRect(0, 0, w * 0.036, h);
   ctx.fillRect(w * 0.964, 0, w * 0.036, h);
 
-  // Top crimp horizontal ribs
   ctx.strokeStyle = palette.isMatteWhite ? 'rgba(92,49,24,0.14)' : 'rgba(255,255,255,0.12)';
   ctx.lineWidth = 2;
   for (let y = 10; y < h * 0.072; y += 8) {
@@ -147,13 +148,16 @@ function paintBaseFoil(
   }
 }
 
+/**
+ * Synchronous procedural fallback front texture shown immediately while studio JPG decodes (~15ms).
+ */
 export function createPouchFrontTexture(
   flavorId: FlavorId,
   maxAnisotropy: number
 ): THREE.CanvasTexture {
   const palette = POUCH_PALETTES[flavorId];
-  const w = 1024;
-  const h = 1365;
+  const w = 512;
+  const h = 682;
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
@@ -161,101 +165,107 @@ export function createPouchFrontTexture(
 
   paintBaseFoil(ctx, w, h, palette);
 
-  // Zipper horizontal highlight band around y ≈ 10.5%
-  const zipY = h * 0.105;
-  ctx.fillStyle = palette.isMatteWhite ? 'rgba(120,53,15,0.14)' : 'rgba(0,0,0,0.24)';
-  ctx.fillRect(0, zipY - 8, w, 16);
-  ctx.fillStyle = palette.isMatteWhite ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.28)';
-  ctx.fillRect(0, zipY - 2, w, 4);
-
-  // Clean Saging Studio Sticker Card on Upper Chest (y: 17.5% -> 43%)
   const cardW = w * 0.66;
   const cardH = h * 0.255;
   const cardX = (w - cardW) / 2;
-  const cardY = h * 0.175;
+  const cardY = h * 0.2;
 
-  // Soft sticker drop shadow
-  ctx.save();
-  ctx.shadowColor = 'rgba(24,8,2,0.34)';
-  ctx.shadowBlur = 24;
-  ctx.shadowOffsetY = 10;
-  drawRoundedRect(ctx, cardX, cardY, cardW, cardH, 34);
+  drawRoundedRect(ctx, cardX, cardY, cardW, cardH, 18);
   ctx.fillStyle = palette.stickerBg;
   ctx.fill();
-  ctx.restore();
 
-  // Crisp inner cream border
-  ctx.save();
-  drawRoundedRect(ctx, cardX + 12, cardY + 12, cardW - 24, cardH - 24, 24);
-  ctx.strokeStyle = 'rgba(255,249,240,0.52)';
-  ctx.lineWidth = 3.5;
-  ctx.stroke();
-  ctx.restore();
-
-  // Saging Serif Wordmark
-  ctx.save();
   ctx.fillStyle = palette.stickerText;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = '900 132px Georgia, "Times New Roman", serif';
-  ctx.shadowColor = 'rgba(42,16,5,0.32)';
-  ctx.shadowBlur = 8;
-  ctx.shadowOffsetY = 4;
-  ctx.fillText('Saging', w / 2, cardY + cardH * 0.34);
-  ctx.restore();
+  ctx.font = '900 66px Georgia, "Times New Roman", serif';
+  ctx.fillText('Saging', w / 2, cardY + cardH * 0.38);
 
-  // Subhead: BANANA CHIPS
-  ctx.save();
-  ctx.fillStyle = '#FDE68A';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = '700 26px system-ui, -apple-system, sans-serif';
-  ctx.fillText('B A N A N A   C H I P S', w / 2, cardY + cardH * 0.61);
-  ctx.restore();
-
-  // High-contrast Dark Cocoa Flavor Banner Inside Sticker (crisp & never washes out under studio lighting)
   const pillW = cardW * 0.72;
-  const pillH = 56;
-  const pillX = (w - pillW) / 2;
-  const pillY = cardY + cardH * 0.71;
-  drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 28);
+  const pillH = 30;
+  drawRoundedRect(ctx, (w - pillW) / 2, cardY + cardH * 0.68, pillW, pillH, 15);
   ctx.fillStyle = '#3B1A0A';
   ctx.fill();
-  ctx.strokeStyle = 'rgba(253,230,138,0.55)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
 
   ctx.fillStyle = '#FFF9F0';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = '800 30px system-ui, -apple-system, sans-serif';
-  ctx.fillText(palette.title, w / 2, pillY + pillH / 2 + 1);
-
-  // Subtle metallic collar trim above & below the clear window region (y: 44.5% -> 76%)
-  ctx.fillStyle = palette.isMatteWhite ? '#C85A14' : '#FDE68A';
-  ctx.globalAlpha = palette.isMatteWhite ? 0.88 : 0.75;
-  ctx.fillRect(w * 0.04, h * 0.445, w * 0.92, 4);
-  ctx.fillRect(w * 0.04, h * 0.76, w * 0.92, 4);
-  ctx.globalAlpha = 1;
-
-  // Lower skirt badge: 70g · CRISPY REAL BANANAS
-  const footerTextColor = palette.isMatteWhite ? '#3B1A0A' : '#FFF9F0';
-  ctx.fillStyle = footerTextColor;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = '700 28px system-ui, -apple-system, sans-serif';
-  ctx.fillText('70 g  ·  REAL SABA BANANAS', w / 2, h * 0.855);
-
-  ctx.globalAlpha = 0.82;
-  ctx.font = '600 20px system-ui, -apple-system, sans-serif';
-  ctx.fillText('ANTIPOLO CITY  ·  PHILIPPINES', w / 2, h * 0.905);
-  ctx.globalAlpha = 1;
+  ctx.font = '800 16px system-ui, sans-serif';
+  ctx.fillText(palette.title, w / 2, cardY + cardH * 0.68 + pillH / 2);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = Math.min(8, maxAnisotropy);
   texture.needsUpdate = true;
   return texture;
+}
+
+/**
+ * Loads the studio-engineered pouch image, trims cream backdrop per scanline,
+ * unwarps edge-to-edge onto a 1024x1365 albedo texture, and returns a crisp CanvasTexture.
+ */
+export function createStudioPhotoFrontTexture(
+  imageSrc: string,
+  maxAnisotropy: number
+): Promise<THREE.CanvasTexture | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const srcW = img.naturalWidth || img.width;
+        const srcH = img.naturalHeight || img.height;
+        const srcCanvas = document.createElement('canvas');
+        srcCanvas.width = srcW;
+        srcCanvas.height = srcH;
+        const srcCtx = srcCanvas.getContext('2d');
+        if (!srcCtx) {
+          resolve(null);
+          return;
+        }
+        srcCtx.drawImage(img, 0, 0, srcW, srcH);
+        const srcImageData = srcCtx.getImageData(0, 0, srcW, srcH);
+
+        const dstW = 1024;
+        const dstH = 1365;
+        const dstCanvas = document.createElement('canvas');
+        dstCanvas.width = dstW;
+        dstCanvas.height = dstH;
+        const dstCtx = dstCanvas.getContext('2d');
+        if (!dstCtx) {
+          resolve(null);
+          return;
+        }
+        const dstImageData = dstCtx.createImageData(dstW, dstH);
+
+        unwarpStudioPouchPixels(
+          srcImageData.data,
+          srcW,
+          srcH,
+          dstImageData.data,
+          dstW,
+          dstH
+        );
+        dstCtx.putImageData(dstImageData, 0, 0);
+
+        // Subtle outer edge seam blend so perimeter edges marry seamlessly into the 3D side rim
+        const seamGrad = dstCtx.createLinearGradient(0, 0, dstW, 0);
+        seamGrad.addColorStop(0, 'rgba(0,0,0,0.14)');
+        seamGrad.addColorStop(0.028, 'rgba(0,0,0,0)');
+        seamGrad.addColorStop(0.972, 'rgba(0,0,0,0)');
+        seamGrad.addColorStop(1, 'rgba(0,0,0,0.14)');
+        dstCtx.fillStyle = seamGrad;
+        dstCtx.fillRect(0, 0, dstW, dstH);
+
+        const texture = new THREE.CanvasTexture(dstCanvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.anisotropy = Math.min(8, maxAnisotropy);
+        texture.needsUpdate = true;
+        resolve(texture);
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = imageSrc;
+  });
 }
 
 export function createPouchBackTexture(
@@ -272,16 +282,14 @@ export function createPouchBackTexture(
 
   paintBaseFoil(ctx, w, h, palette);
 
-  // Zipper highlight line
-  const zipY = h * 0.105;
+  const zipY = h * 0.115;
   ctx.fillStyle = palette.isMatteWhite ? 'rgba(120,53,15,0.14)' : 'rgba(0,0,0,0.24)';
   ctx.fillRect(0, zipY - 8, w, 16);
 
-  // Clean Back-of-Pack Story Card
   const cardW = w * 0.72;
   const cardH = h * 0.44;
   const cardX = (w - cardW) / 2;
-  const cardY = h * 0.24;
+  const cardY = h * 0.25;
 
   drawRoundedRect(ctx, cardX, cardY, cardW, cardH, 32);
   ctx.fillStyle = palette.isMatteWhite
@@ -331,73 +339,122 @@ export function createPouchBackTexture(
   return texture;
 }
 
-export function createFoilBumpTexture(): THREE.CanvasTexture {
-  const w = 256;
-  const h = 512;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d')!;
-
-  ctx.fillStyle = '#808080';
-  ctx.fillRect(0, 0, w, h);
-
-  for (let x = 0; x < w; x += 2) {
-    const shade = 120 + Math.round(Math.sin(x * 0.7) * 10 + Math.cos(x * 1.9) * 8);
-    ctx.fillStyle = `rgb(${shade},${shade},${shade})`;
-    ctx.fillRect(x, 0, 1, h);
-  }
-
-  for (let y = 0; y < 38; y += 4) {
-    ctx.fillStyle = y % 8 === 0 ? '#D8D8D8' : '#585858';
-    ctx.fillRect(0, y, w, 2);
-  }
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.needsUpdate = true;
-  return tex;
-}
-
 /**
- * Rich caramelized golden banana chip texture with natural dark roasted center star.
+ * Generates shared high-frequency foil crinkle tangent-space normal map
+ * AND spatially varying PBR roughness map (glossy viewing window, satin foil, matte crimp edges).
  */
-export function createBananaChipTexture(maxAnisotropy: number): THREE.CanvasTexture {
-  const size = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  const cx = size / 2;
-  const cy = size / 2;
+export function createFoilCrinkleMaps(maxAnisotropy: number): {
+  normalMap: THREE.CanvasTexture;
+  roughnessMap: THREE.CanvasTexture;
+} {
+  const w = 512;
+  const h = 682;
+  const heightField = new Float32Array(w * h);
 
-  const grad = ctx.createRadialGradient(cx, cy, size * 0.04, cx, cy, size * 0.5);
-  grad.addColorStop(0, '#E8AA2C');
-  grad.addColorStop(0.45, '#D48A18');
-  grad.addColorStop(0.82, '#A7580A');
-  grad.addColorStop(1, '#6E3204');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
+  for (let y = 0; y < h; y++) {
+    const v = y / (h - 1); // 0 = top seal, 1 = bottom gusset in canvas space
+    for (let x = 0; x < w; x++) {
+      const u = x / (w - 1); // 0 = left, 1 = right
+      const uCentered = (u - 0.5) * 2; // [-1, 1]
 
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.strokeStyle = 'rgba(92,38,4,0.52)';
-  ctx.lineWidth = 4.5;
-  for (let i = 0; i < 6; i++) {
-    const angle = (i * Math.PI) / 3;
-    ctx.beginPath();
-    ctx.moveTo(Math.cos(angle) * 6, Math.sin(angle) * 6);
-    ctx.lineTo(Math.cos(angle) * 36, Math.sin(angle) * 36);
-    ctx.stroke();
+      // Keep center sticker & viewing window flatter while accentuating shoulder, seam, & gusset crinkles
+      const inStickerCenter =
+        v >= 0.19 && v <= 0.52 && Math.abs(uCentered) < 0.72
+          ? Math.max(0, 1 - Math.abs(uCentered) / 0.72) *
+            Math.sin(((v - 0.19) / 0.33) * Math.PI)
+          : 0;
+      const edgeWeight =
+        Math.min(
+          1,
+          0.18 + 0.82 * (Math.pow(Math.abs(uCentered), 1.55) + (v < 0.2 || v > 0.78 ? 0.55 : 0))
+        ) *
+        (1 - 0.76 * inStickerCenter);
+
+      // Multi-octave organic foil crinkle folds
+      const n1 = sampleValueNoise2D(u * 4.8, v * 6.9);
+      const n2 = sampleValueNoise2D(u * 10.5 + 13.7, v * 14.2 + 4.1);
+      const n3 = sampleValueNoise2D(u * 23.0 + 31.2, v * 28.0 + 19.3);
+
+      // Diagonal corner tension creases radiating from top zipper shoulders
+      const diagL = Math.sin((u * 13 + v * 8.5) * Math.PI) * Math.max(0, 1 - Math.hypot(u, v - 0.16) * 2.3);
+      const diagR = Math.sin(((1 - u) * 13 + v * 8.5) * Math.PI) * Math.max(0, 1 - Math.hypot(1 - u, v - 0.16) * 2.3);
+
+      // Lower gusset vertical pleats
+      const bottomPleat =
+        v > 0.78
+          ? Math.sin(uCentered * 11) * ((v - 0.78) / 0.22) * 0.16
+          : 0;
+
+      // Top heat-seal horizontal crimp grooves (v < 0.068)
+      const topCrimp = v < 0.068 ? Math.sin(v * 340) * 0.26 : 0;
+
+      // Embossed twin zipper lock ridges around v ≈ 0.115
+      const zipDist = Math.abs(v - 0.115);
+      const zipRidge = zipDist < 0.015 ? Math.cos((zipDist / 0.015) * Math.PI * 1.5) * 0.42 : 0;
+
+      heightField[y * w + x] =
+        (n1 * 0.48 + n2 * 0.26 + n3 * 0.1 + diagL * 0.2 + diagR * 0.2) * edgeWeight +
+        bottomPleat +
+        topCrimp +
+        zipRidge;
+    }
   }
-  ctx.restore();
 
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = Math.min(4, maxAnisotropy);
-  tex.needsUpdate = true;
-  return tex;
+  // Convert heightfield to tangent-space Normal Map
+  const normCanvas = document.createElement('canvas');
+  normCanvas.width = w;
+  normCanvas.height = h;
+  const normCtx = normCanvas.getContext('2d')!;
+  const normImg = normCtx.createImageData(w, h);
+
+  // Build matching PBR Roughness Map
+  const roughCanvas = document.createElement('canvas');
+  roughCanvas.width = w;
+  roughCanvas.height = h;
+  const roughCtx = roughCanvas.getContext('2d')!;
+  const roughImg = roughCtx.createImageData(w, h);
+
+  for (let y = 0; y < h; y++) {
+    const v = y / (h - 1);
+    for (let x = 0; x < w; x++) {
+      const u = x / (w - 1);
+      const idx = (y * w + x) * 4;
+
+      const [nr, ng, nb] = computeSobelNormal(heightField, w, h, x, y, 1.35);
+      normImg.data[idx] = nr;
+      normImg.data[idx + 1] = ng;
+      normImg.data[idx + 2] = nb;
+      normImg.data[idx + 3] = 255;
+
+      // Roughness modulation: glossy clear window, matte-satin label, satin metallic foil, textured crimp edges
+      const inWindow = v >= 0.54 && v <= 0.77 && u >= 0.14 && u <= 0.86;
+      const inSticker = v >= 0.21 && v <= 0.51 && u >= 0.16 && u <= 0.84;
+      const inMargin = u < 0.05 || u > 0.95 || v < 0.075;
+      const microVar = (heightField[y * w + x] - 0.35) * 18;
+      const baseRough = inWindow ? 50 : inSticker ? 148 : inMargin ? 156 : 104;
+      const roughByte = Math.max(28, Math.min(235, Math.round(baseRough + microVar)));
+
+      roughImg.data[idx] = roughByte;
+      roughImg.data[idx + 1] = roughByte;
+      roughImg.data[idx + 2] = roughByte;
+      roughImg.data[idx + 3] = 255;
+    }
+  }
+
+  normCtx.putImageData(normImg, 0, 0);
+  roughCtx.putImageData(roughImg, 0, 0);
+
+  const normalMap = new THREE.CanvasTexture(normCanvas);
+  normalMap.colorSpace = THREE.NoColorSpace;
+  normalMap.anisotropy = Math.min(8, maxAnisotropy);
+  normalMap.needsUpdate = true;
+
+  const roughnessMap = new THREE.CanvasTexture(roughCanvas);
+  roughnessMap.colorSpace = THREE.NoColorSpace;
+  roughnessMap.anisotropy = Math.min(4, maxAnisotropy);
+  roughnessMap.needsUpdate = true;
+
+  return { normalMap, roughnessMap };
 }
 
 export function createContactShadowTexture(): THREE.CanvasTexture {
@@ -410,7 +467,7 @@ export function createContactShadowTexture(): THREE.CanvasTexture {
   const cy = size / 2;
 
   const grad = ctx.createRadialGradient(cx, cy, size * 0.04, cx, cy, size * 0.48);
-  grad.addColorStop(0, 'rgba(59, 26, 10, 0.34)');
+  grad.addColorStop(0, 'rgba(59, 26, 10, 0.36)');
   grad.addColorStop(0.45, 'rgba(59, 26, 10, 0.16)');
   grad.addColorStop(1, 'rgba(59, 26, 10, 0)');
   ctx.fillStyle = grad;

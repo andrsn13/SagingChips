@@ -20,13 +20,12 @@ import {
 import {
   POUCH_HEIGHT,
   buildFlavorPouch,
-  createSharedChipGeometry,
   type PouchInstanceResources,
 } from '@/lib/three/pouch-geometry';
 import {
-  createBananaChipTexture,
   createContactShadowTexture,
-  createFoilBumpTexture,
+  createFoilCrinkleMaps,
+  createStudioPhotoFrontTexture,
 } from '@/lib/three/pouch-textures';
 
 interface FlavorStage3DProps {
@@ -113,7 +112,6 @@ export function FlavorStage3D({
 
     const isSoftwareGl = detectSoftwareWebGL(renderer);
     if (isSoftwareGl) {
-      // Recreate without expensive MSAA under software rasterization for smooth interactive pacing
       renderer.dispose();
       try {
         renderer = new THREE.WebGLRenderer({
@@ -129,7 +127,7 @@ export function FlavorStage3D({
 
     renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.02;
+    renderer.toneMappingExposure = 1.0;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = false;
     renderer.setClearColor(0x000000, 0);
@@ -157,40 +155,33 @@ export function FlavorStage3D({
     const roomEnv = new RoomEnvironment();
     const envTarget = pmrem.fromScene(roomEnv, 0.04);
     scene.environment = envTarget.texture;
-    scene.environmentIntensity = 0.52;
+    scene.environmentIntensity = 0.46;
     roomEnv.dispose();
     pmrem.dispose();
 
-    // Three-point warm studio lighting rig angled to keep colors saturated and foil edges crisp
-    const hemiLight = new THREE.HemisphereLight(0xfff6e9, 0xc98c5b, 0.65);
-    const keyLight = new THREE.DirectionalLight(0xfff5e8, 1.38);
-    keyLight.position.set(5.4, 4.4, 4.6);
-    const fillLight = new THREE.DirectionalLight(0xfde6cf, 0.72);
-    fillLight.position.set(-5.2, 2.4, 4.0);
+    // Three-point warm studio lighting rig angled to graze shoulder crinkles without blowing out center labels
+    const hemiLight = new THREE.HemisphereLight(0xfff6e9, 0xc98c5b, 0.74);
+    const keyLight = new THREE.DirectionalLight(0xfff5e8, 1.08);
+    keyLight.position.set(6.4, 5.4, 4.2);
+    const fillLight = new THREE.DirectionalLight(0xfde6cf, 0.66);
+    fillLight.position.set(-5.4, 2.8, 3.8);
     const rimLight = new THREE.DirectionalLight(0xf6c21c, 1.15);
-    rimLight.position.set(0.4, 4.4, -5.6);
+    rimLight.position.set(0.4, 4.8, -5.6);
     scene.add(hemiLight, keyLight, fillLight, rimLight);
 
     const maxAnisotropy = renderer.capabilities.getMaxAnisotropy();
-    const sharedChipGeo = createSharedChipGeometry();
-    const sharedChipTex = createBananaChipTexture(maxAnisotropy);
-    const sharedChipMat = new THREE.MeshStandardMaterial({
-      map: sharedChipTex,
-      roughness: 0.42,
-      metalness: 0.06,
-    });
-    const sharedBumpTex = createFoilBumpTexture();
+    const { normalMap, roughnessMap } = createFoilCrinkleMaps(maxAnisotropy);
     const sharedShadowTex = createContactShadowTexture();
 
     const sharedAssets = {
-      chipGeometry: sharedChipGeo,
-      chipMaterial: sharedChipMat,
-      foilBumpTexture: sharedBumpTex,
+      normalMap,
+      roughnessMap,
       shadowTexture: sharedShadowTex,
     };
 
     const pouches: PouchInstanceResources[] = [];
     const hitMeshes: THREE.Mesh[] = [];
+    const uploadedStudioTextures: THREE.Texture[] = [];
     const initialTargets = computeFanTargets(focusedIndexRef.current, flavors.length, aspect0);
 
     const states: PouchKinematicState[] = flavors.map((flavor, idx) => {
@@ -224,7 +215,6 @@ export function FlavorStage3D({
       };
     });
 
-    // Pre-allocated scratch helpers (zero allocations inside render loop)
     const raycaster = new THREE.Raycaster();
     const pointerNDC = new THREE.Vector2(0, 0);
     const pointerSmooth = {
@@ -252,6 +242,29 @@ export function FlavorStage3D({
     let rafId = 0;
     let lastTimeMs = performance.now();
     let elapsedSec = 0;
+
+    // Async upgrade each pouch front albedo to cropped studio photography with zero pop-in
+    flavors.forEach((flavor, idx) => {
+      createStudioPhotoFrontTexture(flavor.image.src, maxAnisotropy).then((studioTex) => {
+        if (!studioTex) return;
+        if (disposed || contextLost) {
+          studioTex.dispose();
+          return;
+        }
+        const targetPouch = pouches[idx];
+        if (!targetPouch) {
+          studioTex.dispose();
+          return;
+        }
+        uploadedStudioTextures.push(studioTex);
+        targetPouch.frontMaterial.map = studioTex;
+        targetPouch.frontMaterial.needsUpdate = true;
+        targetPouch.initialFrontTexture.dispose();
+        if (prefersReducedMotion) {
+          renderer.render(scene, camera);
+        }
+      });
+    });
 
     const glCtx = renderer.getContext();
     const gl2 =
@@ -353,7 +366,6 @@ export function FlavorStage3D({
         // Ignore
       }
 
-      // If it was a clean tap on an already-focused pouch with minimal drag, nudge spin slightly or reset on dblclick
       if (dragDistancePx < 5 && dragFlavorIndex === focusedIndexRef.current) {
         setCursorMode('grab');
       } else {
@@ -461,7 +473,6 @@ export function FlavorStage3D({
 
       const activeFocus = focusedIndexRef.current;
 
-      // When active focus changes, smoothly return previous bags' spin toward front-facing 0
       if (activeFocus !== prevFocus) {
         states.forEach((st, idx) => {
           if (idx !== activeFocus && Math.abs(st.spinYaw.value) > 0.02) {
@@ -472,7 +483,6 @@ export function FlavorStage3D({
         prevFocus = activeFocus;
       }
 
-      // External reset button signal
       if (resetSignalRef.current !== prevResetSignal) {
         prevResetSignal = resetSignalRef.current;
         states.forEach((st) => {
@@ -483,7 +493,6 @@ export function FlavorStage3D({
 
       const targets = computeFanTargets(activeFocus, flavors.length, currentAspect);
 
-      // Update smoothed pointer follow + responsive camera Z
       pointerSmooth.x = stepSpring(pointerSmooth.x, pointerSmooth.targetX, TILT_SPRING, dt);
       pointerSmooth.y = stepSpring(pointerSmooth.y, pointerSmooth.targetY, TILT_SPRING, dt);
       cameraZSpring = stepSpring(
@@ -513,7 +522,6 @@ export function FlavorStage3D({
         st.fanYaw = stepSpring(st.fanYaw, t.yaw, springCfg, dt);
         st.scale = stepSpring(st.scale, t.scale, springCfg, dt);
 
-        // Drag spin + inertia + optional return spring
         const currentlyDraggingThis = isDragging && dragFlavorIndex === i;
         if (!currentlyDraggingThis) {
           if (st.spinTargetYaw !== null) {
@@ -527,7 +535,6 @@ export function FlavorStage3D({
             st.spinYawVel = decayVelocity(st.spinYawVel, 3.1, dt);
           }
 
-          // Vertical pitch smoothly springs back toward natural upright posture when released
           st.spinPitch = stepSpring(st.spinPitch, 0, TILT_SPRING, dt);
         }
 
@@ -536,12 +543,10 @@ export function FlavorStage3D({
           anySpun = true;
         }
 
-        // Golden-ratio harmonic breathing (suppressed when reduced-motion is preferred)
         const harmonic = prefersReducedMotion
           ? { dy: 0, dRoll: 0, dPitch: 0 }
           : computeHarmonicFloat(elapsedSec, i, t.isFocused);
 
-        // Subtle pointer-follow micro-tilt strongest on focused bag
         const tiltWeight = t.isFocused && !currentlyDraggingThis ? 1 : 0.25;
         const pointerPitch = -pointerSmooth.y.value * 0.075 * tiltWeight;
         const pointerYaw = pointerSmooth.x.value * 0.115 * tiltWeight;
@@ -556,7 +561,6 @@ export function FlavorStage3D({
         );
         pouch.root.scale.setScalar(st.scale.value);
 
-        // Keep floor contact shadow anchored beneath each bag, softening slightly as it rises
         const shadowScale = st.scale.value * (1 - Math.max(0, harmonic.dy) * 0.45);
         pouch.shadowMesh.position.set(st.x.value, -POUCH_HEIGHT * 0.5 - 0.14, st.z.value);
         pouch.shadowMesh.scale.set(shadowScale, shadowScale, 1);
@@ -593,7 +597,6 @@ export function FlavorStage3D({
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // Initial render
     renderFrame(performance.now());
     if (!prefersReducedMotion) {
       scheduleNextTick();
@@ -621,10 +624,9 @@ export function FlavorStage3D({
         p.disposables.materials.forEach((m) => m.dispose());
         p.disposables.textures.forEach((t) => t.dispose());
       });
-      sharedChipGeo.dispose();
-      sharedChipMat.dispose();
-      sharedChipTex.dispose();
-      sharedBumpTex.dispose();
+      uploadedStudioTextures.forEach((t) => t.dispose());
+      normalMap.dispose();
+      roughnessMap.dispose();
       sharedShadowTex.dispose();
       envTarget.dispose();
       renderer.dispose();
@@ -644,7 +646,6 @@ export function FlavorStage3D({
           ? 'cursor-pointer'
           : 'cursor-default';
 
-  // Isolated empty WebGL container with zero sibling overlays or backdrop filters inside
   return (
     <div
       ref={hostRef}
